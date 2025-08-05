@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <title>Face Attendance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            deepBlue: '#2B4664',
+            vibrantBlue: '#3A6FCC',
+            steelBlue: '#5A82B8',
+            lightBlue: '#90D5FF',
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+          },
+        }
+      }
+    };
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+</head>
+<body class="bg-lightBlue dark:bg-gray-900 text-gray-900 dark:text-white font-sans flex flex-col items-center justify-center min-h-screen p-4 transition-colors duration-300">
+
+  <div class="bg-white dark:bg-deepBlue p-8 rounded-xl shadow-lg w-full max-w-lg space-y-6 text-center">
+    <h1 class="text-3xl font-bold text-deepBlue dark:text-lightBlue">🎥 Public Face Attendance</h1>
+    <p class="text-gray-600 dark:text-gray-300">Show your face in the camera below to mark your attendance.</p>
+
+    <video id="attendance-webcam" autoplay class="w-full rounded shadow-lg border"></video>
+    <button id="start-stop-btn" class="w-full bg-red-700 hover:bg-red-800 text-white py-2 px-4 rounded transition">Start Camera</button>
+
+    <p id="result" class="mt-4 text-lg font-semibold"></p>
+
+    <a href="/login" class="text-sm text-vibrantBlue hover:underline">🔒 Admin Login</a>
+  </div>
+
+  <script>
+    const video = document.getElementById('attendance-webcam');
+    const startBtn = document.getElementById('start-stop-btn');
+    const resultText = document.getElementById('result');
+
+    let stream = null;
+    let detecting = false;
+
+    startBtn.addEventListener('click', () => {
+      if (!detecting) {
+        startCamera();
+      } else {
+        stopCamera();
+      }
+    });
+
+    function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
+        stream = s;
+        video.srcObject = stream;
+        detecting = true;
+        startBtn.textContent = "Stop Camera";
+        detectLoop();
+      }).catch(err => {
+        alert("Camera access denied.");
+      });
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      detecting = false;
+      startBtn.textContent = "Start Camera";
+    }
+
+    function detectLoop() {
+      if (!detecting) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg');
+
+      fetch('/mark_attendance_from_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          resultText.textContent = `✅ Attendance marked for ${data.name}`;
+          resultText.classList.remove('text-red-500');
+          resultText.classList.add('text-green-500');
+        } else if (data.status === 'unknown') {
+          resultText.textContent = `❌ Face not recognized`;
+          resultText.classList.remove('text-green-500');
+          resultText.classList.add('text-red-500');
+        } else {
+          resultText.textContent = '';
+        }
+      });
+
+      setTimeout(detectLoop, 5000);
+    }
+  </script>
+</body>
+</html>

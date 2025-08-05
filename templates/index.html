@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Face Attendance System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            lightBlue: '#90D5FF',
+            vibrantBlue: '#3A6FCC',
+            steelBlue: '#5A82B8',
+            deepBlue: '#2B4664',
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+          },
+          transitionDuration: {
+            DEFAULT: '200ms'
+          }
+        }
+      }
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    .fade { transition: opacity 0.2s ease-in-out; }
+    .hidden-blur {
+      opacity: 0;
+      filter: blur(5px);
+      pointer-events: none;
+    }
+    .visible-blur {
+      opacity: 1;
+      filter: blur(5px);
+    }
+    .btn {
+      transition: all 0.2s ease-in-out;
+      font-weight: 600;
+    }
+    .btn:hover {
+      transform: scale(1.03);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+  </style>
+</head>
+
+<body class="bg-lightBlue dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans p-6 transition-colors duration-300">
+
+  <!-- WAVE SVG Background -->
+  <div class="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
+    <svg class="w-full h-full" viewBox="0 0 1440 320" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#517891" fill-opacity="0.2"
+        d="M0,160L60,176C120,192,240,224,360,197.3C480,171,600,85,720,74.7C840,64,960,128,1080,165.3C1200,203,1320,213,1380,218.7L1440,224L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z">
+      </path>
+    </svg>
+  </div>
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="max-w-5xl mx-auto space-y-8 fade">
+
+    <!-- THEME + LOGOUT + USER -->
+    <div class="flex justify-between items-center">
+      <div>
+        {% if session['username'] %}
+          <p class="text-deepBlue dark:text-lightBlue font-semibold">👋 Welcome, {{ session['username'] }}</p>
+        {% endif %}
+      </div>
+      <div class="space-x-2">
+        <button id="theme-toggle"
+          class="btn bg-gray-200 dark:bg-deepBlue text-deepBlue dark:text-white px-4 py-2 rounded-lg shadow text-sm">🌙 Toggle Theme</button>
+        <a href="{{ url_for('logout') }}"
+          class="btn bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm">🚪 Logout</a>
+      </div>
+    </div>
+
+    <div class="flex justify-between items-center">
+      <h1 class="text-3xl font-bold text-deepBlue dark:text-lightBlue">📋 Attendance Dashboard</h1>
+      <button onclick="switchToCamera()"
+        class="btn bg-vibrantBlue hover:bg-steelBlue text-white px-4 py-2 rounded shadow">🎥 Mark Attendance</button>
+    </div>
+
+    <div class="grid grid-cols-2 gap-6">
+      <div class="bg-white dark:bg-deepBlue rounded-xl shadow p-4 transition hover:shadow-xl">
+        <p class="text-xl">✅ Present Today: <span class="font-bold text-green-500">{{ count }}</span></p>
+        <p class="text-xl">🧍‍♂️ Total Registered: <span class="font-bold text-vibrantBlue">{{ total }}</span></p>
+        <a href="{{ url_for('download_csv') }}"
+          class="btn mt-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg inline-block">📥 Download CSV</a>
+        <button onclick="document.getElementById('register-modal').classList.remove('hidden')"
+          class="btn mt-2 block px-4 py-2 bg-steelBlue hover:bg-deepBlue text-white rounded-lg">➕ Register New Face</button>
+
+        <!-- LIVE CLOCK -->
+        <div id="live-clock" class="mt-6 p-4 rounded-xl shadow text-center text-white font-semibold select-none"
+          style="background: rgba(0, 0, 0, 0.5);">
+          <div id="date"></div>
+          <div id="time" class="text-3xl mt-1 font-mono"></div>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-deepBlue rounded-xl shadow p-4 transition hover:shadow-xl">
+        <canvas id="attendanceChart" width="400" height="300"></canvas>
+        <button id="animate-chart"
+          class="btn mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg shadow">🔄 Animate Chart</button>
+      </div>
+    </div>
+
+    <div class="bg-white dark:bg-deepBlue rounded-xl shadow p-4 overflow-x-auto">
+      <h2 class="text-2xl font-semibold mb-2 text-deepBlue dark:text-lightBlue">Today's Attendance</h2>
+      <table class="w-full text-left border-collapse">
+        <thead class="bg-gray-200 dark:bg-gray-700">
+          <tr>
+            <th class="p-2 border">Name</th>
+            <th class="p-2 border">Time</th>
+            <th class="p-2 border">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in attendance %}
+          <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <td class="p-2 border">{{ row['Name'] }}</td>
+            <td class="p-2 border">{{ row['Time'] }}</td>
+            <td class="p-2 border">{{ row['Date'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-white dark:bg-deepBlue rounded-xl shadow p-4">
+      <h2 class="text-xl font-semibold mb-2 text-deepBlue dark:text-lightBlue">✏️ Mark Attendance Manually</h2>
+      <form method="POST" action="/mark_manual_attendance" class="flex gap-4">
+        <input type="text" name="manual_name" placeholder="Enter Name" required
+          class="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+        <button type="submit"
+          class="btn bg-vibrantBlue hover:bg-steelBlue text-white px-4 py-2 rounded-lg">Submit</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CAMERA MODAL -->
+  <div id="attendance-modal"
+    class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 fade hidden">
+    <div class="bg-white dark:bg-deepBlue p-6 rounded-xl shadow-xl space-y-4 w-[400px]">
+      <h2 class="text-xl font-semibold text-center text-deepBlue dark:text-lightBlue">🎥 Face Attendance</h2>
+      <video id="attendance-webcam" autoplay class="w-full rounded"></video>
+      <button id="start-stop-btn"
+        class="btn bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded w-full">Start Camera</button>
+      <button onclick="switchToDashboard()"
+        class="btn bg-vibrantBlue hover:bg-steelBlue text-white px-4 py-2 rounded w-full mt-2">📊 Go to Dashboard</button>
+    </div>
+  </div>
+
+  <!-- REGISTER MODAL -->
+  <div id="register-modal"
+    class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center hidden">
+    <div class="bg-white dark:bg-deepBlue p-6 rounded-xl shadow-xl space-y-4 w-[400px]">
+      <h2 class="text-xl font-semibold text-deepBlue dark:text-lightBlue">📷 Register New Face</h2>
+      <video id="webcam-register" autoplay class="w-full rounded"></video>
+      <input type="text" id="nameInput" placeholder="Enter Name"
+        class="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" />
+      <form method="POST" action="/register_face">
+        <input type="hidden" name="image" id="capturedImage" />
+        <input type="hidden" name="name" id="hiddenName" />
+        <div class="flex justify-between">
+          <button type="button" onclick="captureAndSubmit()"
+            class="btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Save</button>
+          <button type="button"
+            onclick="document.getElementById('register-modal').classList.add('hidden')"
+            class="btn bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <!-- JAVASCRIPT -->
+  <script>
+    const dashboard = document.getElementById('dashboard');
+    const modal = document.getElementById('attendance-modal');
+    const attendanceVideo = document.getElementById('attendance-webcam');
+    const startStopBtn = document.getElementById('start-stop-btn');
+    let attendanceStream = null;
+    let detecting = false;
+
+    function switchToDashboard() {
+      stopCamera();
+      modal.classList.add('hidden');
+      dashboard.style.filter = 'none';
+      dashboard.style.opacity = '1';
+      dashboard.style.pointerEvents = 'auto';
+    }
+
+    function switchToCamera() {
+      dashboard.style.filter = 'blur(5px)';
+      dashboard.style.opacity = '0.2';
+      dashboard.style.pointerEvents = 'none';
+      modal.classList.remove('hidden');
+      startCamera();
+    }
+
+    startStopBtn.addEventListener('click', () => {
+      if (!detecting) startCamera();
+      else stopCamera();
+    });
+
+    function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        attendanceStream = stream;
+        attendanceVideo.srcObject = stream;
+        detecting = true;
+        startStopBtn.textContent = "Stop Camera";
+        detectFaceLoop();
+      }).catch(() => alert("Webcam access denied."));
+    }
+
+    function stopCamera() {
+      if (attendanceStream) attendanceStream.getTracks().forEach(track => track.stop());
+      detecting = false;
+      startStopBtn.textContent = "Start Camera";
+    }
+
+    function detectFaceLoop() {
+      if (!detecting) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = attendanceVideo.videoWidth;
+      canvas.height = attendanceVideo.videoHeight;
+      canvas.getContext('2d').drawImage(attendanceVideo, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg');
+      fetch('/mark_attendance_from_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
+      }).then(res => res.json()).then(data => {
+        if (data.status === 'success') alert(`✅ Attendance marked for ${data.name}`);
+      });
+      setTimeout(detectFaceLoop, 5000);
+    }
+
+    const toggleBtn = document.getElementById('theme-toggle');
+    const html = document.documentElement;
+    if (localStorage.getItem('theme') === 'dark') html.classList.add('dark');
+    toggleBtn.addEventListener('click', () => {
+      html.classList.toggle('dark');
+      localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+    });
+
+    const webcamRegister = document.getElementById('webcam-register');
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      webcamRegister.srcObject = stream;
+    });
+
+    function captureAndSubmit() {
+      const canvas = document.createElement('canvas');
+      canvas.width = webcamRegister.videoWidth;
+      canvas.height = webcamRegister.videoHeight;
+      canvas.getContext('2d').drawImage(webcamRegister, 0, 0);
+      const image = canvas.toDataURL('image/jpeg');
+      document.getElementById('capturedImage').value = image;
+      document.getElementById('hiddenName').value = document.getElementById('nameInput').value.trim();
+      document.querySelector('#register-modal form').submit();
+    }
+
+    const ctx = document.getElementById('attendanceChart').getContext('2d');
+    let attendanceChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Present Today', 'Not Present'],
+        datasets: [{
+          label: 'Attendance',
+          data: [{{ count }}, {{ total - count }}],
+          backgroundColor: ['#10b981', '#e11d48'],
+          borderWidth: 2,
+          hoverOffset: 20
+        }]
+      },
+      options: {
+        responsive: true,
+        animation: {
+          animateScale: true,
+          animateRotate: true
+        },
+        plugins: {
+          legend: {
+            labels: {
+              color: document.documentElement.classList.contains('dark') ? '#fff' : '#000'
+            }
+          }
+        }
+      }
+    });
+
+    document.getElementById('animate-chart').addEventListener('click', () => {
+      attendanceChart.reset();
+      attendanceChart.update();
+    });
+
+    function updateClock() {
+      const now = new Date();
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const dateStr = now.toLocaleDateString(undefined, options);
+      const timeStr = now.toLocaleTimeString(undefined, { hour12: true });
+      document.getElementById('date').textContent = dateStr;
+      document.getElementById('time').textContent = timeStr;
+    }
+
+    setInterval(updateClock, 1000);
+    updateClock();
+  </script>
+
+  <!-- FOOTER -->
+  <footer class="text-center text-sm mt-10 text-gray-500 dark:text-gray-400 opacity-30">
+    Made by 🎓 Goyal Vairagade, Rohit Pal, Aman Choudhary, Shreyash Kalambe, Om Choudhary & Harish Sakharkar
+  </footer>
+
+</body>
+</html>
